@@ -47,6 +47,7 @@ export class PiRun {
     const userMessage = [...messages].reverse().find(message => message.role === "user");
     if (!userMessage) throw new Error("A user message is required");
 
+    let run!: PiRun;
     const tools = suppliedTools
       .filter(tool => tool?.type === "function" && tool.function?.name)
       .map(tool => {
@@ -56,8 +57,9 @@ export class PiRun {
           label: name,
           description: tool.function.description ?? "",
           parameters: schemaFor(tool.function.parameters),
-          execute: async (id: string, _args: unknown) => new Promise(resolve => {
+          execute: async (id: string, args: unknown) => new Promise(resolve => {
             run.tools.set(id, { id, name, resolve });
+            run.onToolCall({ toolCallId: id, toolName: name, args });
           }),
         };
       });
@@ -70,15 +72,15 @@ export class PiRun {
     await loader.reload();
     const { session } = await createAgentSession({
       modelRuntime: runtime,
-      noTools: "all",
-      tools: [],
+      // An explicit allowlist enables only n8n's tools and excludes Pi built-ins.
+      tools: tools.map(tool => tool.name),
       customTools: tools as any,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(),
     });
-    const run = new PiRun(session);
+    run = new PiRun(session);
 
-    session.subscribe((event: any) => {
+    session.agent.subscribe((event: any) => {
       if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
         run.text += event.assistantMessageEvent.delta;
       }
@@ -90,7 +92,7 @@ export class PiRun {
     return run;
   }
 
-  private onToolCall(event: any) {
+  onToolCall(event: any) {
     const tool = this.tools.get(event.toolCallId);
     if (!tool || this.hasResponded) return;
     this.hasResponded = true;
