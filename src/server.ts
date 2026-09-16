@@ -11,6 +11,10 @@ const MAX_BODY_BYTES = 2_000_000;
 const runsByToolCall = new Map<string, PiRun>();
 let modelRuntime: ModelRuntime | undefined;
 
+async function getModelRuntime() {
+  return modelRuntime ??= await ModelRuntime.create({ allowModelNetwork: false });
+}
+
 function sendJson(res: ServerResponse, status: number, value: unknown) {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(value));
@@ -57,10 +61,15 @@ function lastToolMessage(messages: ChatMessage[]) {
 }
 
 async function chatCompletion(req: IncomingMessage, res: ServerResponse, input: ChatRequest) {
-  if (input.model !== "pi") return sendError(res, 400, "Only model 'pi' is supported");
   if (!Array.isArray(input.messages) || input.messages.length === 0) {
     return sendError(res, 400, "messages must be a non-empty array");
   }
+  if (!input.model) return sendError(res, 400, "model is required");
+  const runtime = await getModelRuntime();
+  const selectedModel = runtime.getAvailableSnapshot().find(
+    model => `${model.provider}/${model.id}` === input.model,
+  );
+  if (!selectedModel) return sendError(res, 400, "Unknown or unavailable model");
 
   const toolMessage = lastToolMessage(input.messages);
   if (toolMessage) {
@@ -73,8 +82,7 @@ async function chatCompletion(req: IncomingMessage, res: ServerResponse, input: 
     return sendCompletion(res, result, input.stream === true);
   }
 
-  modelRuntime ??= await ModelRuntime.create({ allowModelNetwork: false });
-  const run = await PiRun.start(input.messages, input.tools ?? [], modelRuntime);
+  const run = await PiRun.start(input.messages, input.tools ?? [], runtime, selectedModel);
 
   req.on("close", () => {
     if (!res.writableEnded) void run.session.abort();
@@ -94,7 +102,7 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, { status: "ok" });
     }
     if (req.method === "GET" && url.pathname === "/v1/models") {
-      return sendJson(res, 200, modelList());
+      return sendJson(res, 200, modelList((await getModelRuntime()).getAvailableSnapshot()));
     }
     if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
       return await chatCompletion(req, res, await readJson(req));
@@ -108,5 +116,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`harness-openai-adapter listening on http://${HOST}:${PORT}`);
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : PORT;
+  console.log(`harness-openai-adapter listening on http://${HOST}:${port}`);
 });

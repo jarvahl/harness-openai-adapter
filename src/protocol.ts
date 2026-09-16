@@ -27,12 +27,12 @@ export function schemaFor(schema: any) {
   return Type.Unsafe(schema ?? { type: "object", properties: {} });
 }
 
-export function completion(run: { text: string }, finishReason: string, toolCalls?: any[]) {
+export function completion(run: { text: string; model: string }, finishReason: string, toolCalls?: any[]) {
   return {
     id: `chatcmpl-${randomUUID()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: "pi",
+    model: run.model,
     choices: [{
       index: 0,
       message: {
@@ -46,9 +46,13 @@ export function completion(run: { text: string }, finishReason: string, toolCall
   };
 }
 
-export function modelList() {
+export function modelList(models: readonly any[] = []) {
   return {
     object: "list",
-    data: [{ id: "pi", object: "model", owned_by: "harness-openai-adapter" }],
+    data: models.map(model => ({
+      id: `${model.provider}/${model.id}`,
+      object: "model",
+      owned_by: model.provider,
+    })),
   };
 }

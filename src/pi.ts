@@ -35,11 +35,14 @@ export class PiRun {
   text = "";
   hasResponded = false;
 
-  private constructor(session: AgentSession) {
+  private constructor(session: AgentSession, model: string) {
     this.session = session;
+    this.model = model;
   }
 
-  static async start(messages: ChatMessage[], suppliedTools: any[], runtime: ModelRuntime) {
+  readonly model: string;
+
+  static async start(messages: ChatMessage[], suppliedTools: any[], runtime: ModelRuntime, model: any) {
     const systemPrompt = messages
       .filter(message => message.role === "system" || message.role === "developer")
       .map(message => contentText(message.content))
@@ -72,13 +75,14 @@ export class PiRun {
     await loader.reload();
     const { session } = await createAgentSession({
       modelRuntime: runtime,
+      model,
       // An explicit allowlist enables only n8n's tools and excludes Pi built-ins.
       tools: tools.map(tool => tool.name),
       customTools: tools as any,
       resourceLoader: loader,
       sessionManager: SessionManager.inMemory(),
     });
-    run = new PiRun(session);
+    run = new PiRun(session, `${model.provider}/${model.id}`);
 
     session.agent.subscribe((event: any) => {
       if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {

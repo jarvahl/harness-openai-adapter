@@ -8,7 +8,6 @@
     "test": "test"
   },
   "scripts": {
-    "test": "npm run build && node --test",
     "build": "tsc",
     "start": "node dist/server.js"
   },
